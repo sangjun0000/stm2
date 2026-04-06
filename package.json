@@ -1,0 +1,49 @@
+{
+  "name": "stm2",
+  "version": "0.1.0",
+  "description": "Collective Intelligence Memory for AI Agents — zero-token-cost persistent memory via hooks + CLAUDE.md",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "stm2": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/",
+    "clean": "rm -rf dist/",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "files": [
+    "dist/",
+    "src/hooks/",
+    "package.json"
+  ],
+  "keywords": [
+    "ai",
+    "memory",
+    "mcp",
+    "claude",
+    "hooks",
+    "collective-intelligence",
+    "llm"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "sql.js": "^1.11.0",
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

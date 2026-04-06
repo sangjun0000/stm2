@@ -1,0 +1,70 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash C:/Users/USER/stm2/src/hooks/post-tool-use.sh",
+            "timeout": 5000
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash C:/Users/USER/stm2/src/hooks/post-tool-use.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash C:/Users/USER/stm2/src/hooks/session-end.sh",
+            "timeout": 30000
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto|manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash C:/Users/USER/stm2/src/hooks/pre-compact.sh",
+            "timeout": 10000
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash C:/Users/USER/stm2/src/hooks/session-start.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  },
+  "mcpServers": {
+    "stm2": {
+      "command": "node",
+      "args": ["C:/Users/USER/stm2/dist/mcp/server.js"],
+      "env": {
+        "STM2_PROJECT_DIR": "C:/Users/USER/stm2"
+      }
+    }
+  }
+}
