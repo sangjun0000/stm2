@@ -107,7 +107,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const limit = ((args as any).limit || 10) as number;
       const budget = ((args as any).context_budget_tokens || 2000) as number;
 
-      // Search by content (LIKE search for now, FTS5 in future)
+      // Search by content (FTS5 with LIKE fallback)
       let results = database.searchContent(query, scope === 'base' ? 'base' : undefined, limit * 2);
 
       // Also search in all namespaces if scope is 'all'
@@ -119,8 +119,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      // Rank by recency
-      results.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      // Rank by importance (decay × recall boost) instead of recency
+      const now = Date.now();
+      results.sort((a, b) => database.calcImportance(b, now) - database.calcImportance(a, now));
       results = results.slice(0, limit);
 
       // Build response within token budget

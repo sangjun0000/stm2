@@ -4,7 +4,9 @@ import path from 'node:path';
 import fs from 'node:fs';
 import type { MemoryNode, MemoryEdge, Agent, Session, MemoryType, EdgeType } from './types.js';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+const DECAY_LAMBDA = 0.03;
+const MS_PER_HOUR = 3_600_000;
 
 export class StmDatabase {
   private db!: SqlJsDatabase;
@@ -34,6 +36,8 @@ export class StmDatabase {
     const version = this.getSchemaVersion();
     if (version === 0) {
       this.createSchema();
+    } else if (version < SCHEMA_VERSION) {
+      this.migrate(version);
     }
   }
 
@@ -108,6 +112,16 @@ export class StmDatabase {
       )
     `);
 
+    // FTS5 for full-text search
+    try {
+      this.db.run(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts
+        USING fts5(content, summary, tokenize='unicode61')
+      `);
+    } catch {
+      // FTS5 may not be available — LIKE fallback will be used
+    }
+
     this.db.run('CREATE INDEX IF NOT EXISTS idx_nodes_namespace ON nodes(namespace)');
     this.db.run('CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type)');
     this.db.run('CREATE INDEX IF NOT EXISTS idx_nodes_created ON nodes(created_at)');
@@ -119,10 +133,69 @@ export class StmDatabase {
     this.save();
   }
 
+  private migrate(fromVersion: number): void {
+    if (fromVersion < 2) {
+      // v2: add FTS5 virtual table
+      try {
+        this.db.run(`
+          CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts
+          USING fts5(content, summary, tokenize='unicode61')
+        `);
+        // Backfill existing nodes into FTS
+        this.db.run(`
+          INSERT INTO nodes_fts(rowid, content, summary)
+          SELECT rowid, content, COALESCE(summary, '') FROM nodes
+        `);
+      } catch {
+        // FTS5 may not be available in all sql.js builds — fall back silently
+      }
+      this.db.run(`INSERT INTO schema_version (version, applied_at) VALUES (2, datetime('now'))`);
+      this.save();
+    }
+  }
+
+  private hasFts(): boolean {
+    try {
+      this.db.exec("SELECT * FROM nodes_fts LIMIT 0");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private save(): void {
     const data = this.db.export();
     const buffer = Buffer.from(data);
     fs.writeFileSync(this.dbPath, buffer);
+  }
+
+  // --- Importance scoring ---
+
+  calcImportance(node: MemoryNode, now = Date.now()): number {
+    const ageHours = (now - new Date(node.updatedAt).getTime()) / MS_PER_HOUR;
+    const decay = Math.exp(-DECAY_LAMBDA * ageHours);
+    const boost = 1 + Math.log(1 + node.accessCount);
+    return decay * boost;
+  }
+
+  getNodesByImportance(namespace: string, limit = 50): MemoryNode[] {
+    const nodes = this.getNodesByNamespace(namespace, 500);
+    const now = Date.now();
+    const scored = nodes.map(n => ({ node: n, importance: this.calcImportance(n, now) }));
+    scored.sort((a, b) => b.importance - a.importance);
+    return scored.slice(0, limit).map(s => s.node);
+  }
+
+  // --- Deduplication ---
+
+  findDuplicate(namespace: string, type: MemoryType, contentKey: string): MemoryNode | null {
+    const likeKey = `%${contentKey}%`;
+    const result = this.db.exec(
+      `SELECT * FROM nodes WHERE namespace = ? AND type = ? AND content LIKE ? ORDER BY updated_at DESC LIMIT 1`,
+      [namespace, type, likeKey]
+    );
+    if (result.length === 0 || result[0].values.length === 0) return null;
+    return this.resultToNode(result[0].columns, result[0].values[0]);
   }
 
   // --- Node operations ---
@@ -143,6 +216,20 @@ export class StmDatabase {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, namespace, type, content, summary ?? null, tagsJson, now, now]
     );
+
+    // Sync FTS index
+    if (this.hasFts()) {
+      try {
+        const rowResult = this.db.exec('SELECT rowid FROM nodes WHERE id = ?', [id]);
+        if (rowResult.length > 0 && rowResult[0].values.length > 0) {
+          const rowid = rowResult[0].values[0][0];
+          this.db.run(
+            'INSERT INTO nodes_fts(rowid, content, summary) VALUES (?, ?, ?)',
+            [rowid, content, summary ?? '']
+          );
+        }
+      } catch { /* non-blocking */ }
+    }
 
     this.save();
 
@@ -181,6 +268,30 @@ export class StmDatabase {
   }
 
   searchContent(query: string, namespace?: string, limit = 20): MemoryNode[] {
+    // Try FTS5 first, fall back to LIKE
+    if (this.hasFts()) {
+      try {
+        const ftsQuery = query.replace(/['"]/g, ''); // sanitize for FTS
+        let sql = `SELECT n.* FROM nodes n
+          INNER JOIN nodes_fts f ON n.rowid = f.rowid
+          WHERE nodes_fts MATCH ?`;
+        const params: any[] = [ftsQuery];
+
+        if (namespace) {
+          sql += ' AND n.namespace = ?';
+          params.push(namespace);
+        }
+        sql += ' LIMIT ?';
+        params.push(limit);
+
+        const result = this.db.exec(sql, params);
+        if (result.length > 0 && result[0].values.length > 0) {
+          return result[0].values.map(v => this.resultToNode(result[0].columns, v));
+        }
+      } catch { /* FTS query failed — fall through to LIKE */ }
+    }
+
+    // LIKE fallback
     const likeQuery = `%${query}%`;
     let sql = 'SELECT * FROM nodes WHERE content LIKE ?';
     const params: any[] = [likeQuery];
@@ -207,6 +318,16 @@ export class StmDatabase {
   }
 
   deleteNode(id: string): void {
+    // Remove from FTS index before deleting the node
+    if (this.hasFts()) {
+      try {
+        const rowResult = this.db.exec('SELECT rowid FROM nodes WHERE id = ?', [id]);
+        if (rowResult.length > 0 && rowResult[0].values.length > 0) {
+          const rowid = rowResult[0].values[0][0];
+          this.db.run('INSERT INTO nodes_fts(nodes_fts, rowid, content, summary) VALUES (\'delete\', ?, (SELECT content FROM nodes WHERE id = ?), COALESCE((SELECT summary FROM nodes WHERE id = ?), \'\'))', [rowid, id, id]);
+        }
+      } catch { /* non-blocking */ }
+    }
     this.db.run('DELETE FROM edges WHERE from_node = ? OR to_node = ?', [id, id]);
     this.db.run('DELETE FROM nodes WHERE id = ?', [id]);
     this.save();

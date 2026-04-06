@@ -142,6 +142,71 @@ describe('StmDatabase', () => {
     });
   });
 
+  describe('importance scoring', () => {
+    it('should calculate importance with decay over time', () => {
+      const node = db.insertNode('base', 'decision', 'Use JWT');
+      const now = Date.now();
+
+      // Fresh node: decay ≈ 1, boost = 1 + ln(1) = 1 → importance ≈ 1
+      const fresh = db.calcImportance(node, now);
+      expect(fresh).toBeGreaterThan(0.9);
+      expect(fresh).toBeLessThanOrEqual(1.0);
+
+      // Simulate 24 hours later
+      const oneDayLater = now + 24 * 3_600_000;
+      const decayed = db.calcImportance(node, oneDayLater);
+      expect(decayed).toBeLessThan(fresh);
+      expect(decayed).toBeGreaterThan(0); // not zero
+    });
+
+    it('should boost importance with access count', () => {
+      const node = db.insertNode('base', 'decision', 'Use JWT');
+      const now = Date.now();
+
+      const before = db.calcImportance(node, now);
+
+      // Touch 5 times
+      for (let i = 0; i < 5; i++) db.touchNode(node.id);
+      const touched = db.getNode(node.id)!;
+      const after = db.calcImportance(touched, now);
+
+      expect(after).toBeGreaterThan(before);
+    });
+
+    it('should return nodes sorted by importance', () => {
+      // Insert old node
+      const old = db.insertNode('base', 'context', 'Old context');
+      // Touch it many times to boost
+      for (let i = 0; i < 10; i++) db.touchNode(old.id);
+
+      // Insert new node
+      db.insertNode('base', 'context', 'New context');
+
+      const sorted = db.getNodesByImportance('base', 10);
+      expect(sorted.length).toBe(2);
+      // Boosted old node should rank higher than fresh new node (10 accesses vs 0)
+      // boost = 1 + ln(11) ≈ 3.4 vs 1.0, decay difference is negligible (both recent)
+      expect(sorted[0].content).toBe('Old context');
+    });
+  });
+
+  describe('deduplication', () => {
+    it('should find duplicate by content key', () => {
+      db.insertNode('base', 'context', 'File edited: Edited: src/server.ts', [], 'Edit: src/server.ts');
+
+      const dup = db.findDuplicate('base', 'context', 'Edited: src/server.ts');
+      expect(dup).not.toBeNull();
+      expect(dup!.content).toContain('server.ts');
+    });
+
+    it('should return null when no duplicate exists', () => {
+      db.insertNode('base', 'context', 'Something unrelated');
+
+      const dup = db.findDuplicate('base', 'context', 'Edited: auth.ts');
+      expect(dup).toBeNull();
+    });
+  });
+
   describe('stats', () => {
     it('should return correct stats', () => {
       db.insertNode('base', 'decision', 'D1');

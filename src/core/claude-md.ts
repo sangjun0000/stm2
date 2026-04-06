@@ -79,54 +79,60 @@ export class ClaudeMdUpdater {
   }
 
   private gatherData(): ClaudeMdSection {
-    // Project summary from context memories
-    const contexts = this.db.getNodesByType('base', 'context', 5);
-    const projectSummary = contexts
-      .map(n => n.summary || n.content)
-      .join('. ')
-      .slice(0, 200);
+    // Get top memories by importance (decay × recall boost)
+    const topNodes = this.db.getNodesByImportance('base', 30);
 
-    // Recent sessions
+    // Group by type
+    const byType = new Map<string, typeof topNodes>();
+    for (const n of topNodes) {
+      const list = byType.get(n.type) || [];
+      list.push(n);
+      byType.set(n.type, list);
+    }
+
+    const fmt = (n: typeof topNodes[0]) => (n.summary || n.content).slice(0, 80);
+
+    // Project summary from top context nodes
+    const contexts = byType.get('context') || [];
+    const projectSummary = contexts.slice(0, 3).map(fmt).join('. ').slice(0, 200);
+
+    // Recent sessions (still time-based — sessions don't have importance)
     const sessions = this.db.getRecentSessions(3);
     const recentSessions = sessions
       .filter(s => s.summary)
       .map(s => {
         const date = s.startedAt.split('T')[0];
-        const summary = (s.summary || '').slice(0, 100);
-        return `[${date}] ${summary}`;
+        return `[${date}] ${(s.summary || '').slice(0, 100)}`;
       });
 
-    // Open tasks
-    const tasks = this.db.getNodesByType('base', 'task', 10);
-    const openTasks = tasks
-      .map(t => (t.summary || t.content).slice(0, 80));
-
-    // Key decisions
-    const decisions = this.db.getNodesByType('base', 'decision', 5);
-    const keyDecisions = decisions
-      .map(d => (d.summary || d.content).slice(0, 80));
-
-    // Recent errors
-    const errors = this.db.getNodesByType('base', 'error', 3);
-    const recentErrors = errors
-      .map(e => (e.summary || e.content).slice(0, 80));
+    const openTasks = (byType.get('task') || []).map(fmt);
+    const keyDecisions = (byType.get('decision') || []).map(fmt);
+    const recentErrors = (byType.get('error') || []).map(fmt);
 
     return { projectSummary, recentSessions, openTasks, keyDecisions, recentErrors };
   }
 
   private truncateToFit(data: ClaudeMdSection): string {
-    // Priority: open tasks > decisions > sessions > errors > project summary
-    // Drop lowest priority items first until under budget
+    // Fill within budget — importance already sorted, just fit what we can
     let section = `${SECTION_START}\n\n`;
 
     const addIfFits = (heading: string, items: string[], prefix = '- '): boolean => {
       if (items.length === 0) return true;
-      const block = `### ${heading}\n${items.map(i => `${prefix}${i}`).join('\n')}\n\n`;
-      if (section.length + block.length + SECTION_END.length <= MAX_CHARS) {
-        section += block;
-        return true;
+      // Try adding items one by one until budget is hit
+      const fittingItems: string[] = [];
+      for (const item of items) {
+        const candidate = `${prefix}${item}\n`;
+        const headingSize = fittingItems.length === 0 ? `### ${heading}\n`.length : 0;
+        if (section.length + headingSize + fittingItems.join('').length + candidate.length + 2 + SECTION_END.length <= MAX_CHARS) {
+          fittingItems.push(candidate);
+        } else {
+          break;
+        }
       }
-      return false;
+      if (fittingItems.length > 0) {
+        section += `### ${heading}\n${fittingItems.join('')}\n`;
+      }
+      return fittingItems.length > 0;
     };
 
     addIfFits('Open Tasks', data.openTasks, '- [ ] ');

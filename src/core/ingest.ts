@@ -17,6 +17,16 @@ export class IngestPipeline {
     const parsed = this.parseEvent(event);
     if (!parsed) return null;
 
+    // Deduplicate: if a similar memory exists, just bump it instead of creating a new one
+    const dedupeKey = this.getDedupeKey(event, parsed);
+    if (dedupeKey) {
+      const existing = this.db.findDuplicate(namespace, parsed.type, dedupeKey);
+      if (existing) {
+        this.db.touchNode(existing.id);
+        return existing.id;
+      }
+    }
+
     const node = this.db.insertNode(
       namespace,
       parsed.type,
@@ -31,6 +41,29 @@ export class IngestPipeline {
     } catch { /* non-blocking */ }
 
     return node.id;
+  }
+
+  private getDedupeKey(event: IngestEvent, parsed: { type: string; content: string }): string | null {
+    switch (event.type) {
+      case 'edit': {
+        // Dedupe by filename: "Edited: server.ts" repeated → same node
+        const filePath = this.extractFilePath(event.data);
+        return filePath ? `Edited: ${filePath}` : null;
+      }
+      case 'error': {
+        // Dedupe by first line of error
+        const firstLine = (event.output || event.data).split('\n')[0].slice(0, 100);
+        return firstLine || null;
+      }
+      case 'test': {
+        // Dedupe by pass/fail result
+        const output = event.output || event.data;
+        return /pass/i.test(output) && !/fail/i.test(output) ? 'Test: PASSED' : 'Test: FAILED';
+      }
+      // commits, decisions, tasks, milestones are always unique
+      default:
+        return null;
+    }
   }
 
   private parseEvent(event: IngestEvent): {
