@@ -4,7 +4,7 @@
 
 Zero-token-cost persistent memory for Claude Code via hooks + CLAUDE.md. Memories survive across sessions — your AI picks up exactly where it left off.
 
-Inspired by Andrej Karpathy's [LLM OS](https://x.com/kaborashi79/status/1723363906105364646) vision — where LLMs are the CPU of a new operating system, with tools as peripherals and files as persistent storage. STM2 implements the **memory layer** of that OS: a filesystem-backed, graph-structured memory that gives AI agents the ability to remember across sessions, just like an OS kernel manages state across process lifecycles.
+Inspired by Andrej Karpathy's [LLM OS](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) vision — where LLMs are the CPU of a new operating system, with tools as peripherals and files as persistent storage. STM2 implements the **memory layer** of that OS: a filesystem-backed, graph-structured memory that gives AI agents the ability to remember across sessions, just like an OS kernel manages state across process lifecycles.
 
 ## The Problem
 
