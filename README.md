@@ -4,6 +4,8 @@
 
 Zero-token-cost persistent memory for Claude Code via hooks + CLAUDE.md. Memories survive across sessions — your AI picks up exactly where it left off.
 
+Inspired by Andrej Karpathy's [LLM OS](https://x.com/kaborashi79/status/1723363906105364646) vision — where LLMs are the CPU of a new operating system, with tools as peripherals and files as persistent storage. STM2 implements the **memory layer** of that OS: a filesystem-backed, graph-structured memory that gives AI agents the ability to remember across sessions, just like an OS kernel manages state across process lifecycles.
+
 ## The Problem
 
 AI coding agents have **amnesia**. Every time you start a new conversation:
@@ -173,6 +175,44 @@ When a memory is stored, STM2 automatically finds related memories and creates e
 - **Entity matching** — shared file paths, tech names (React, JWT, etc.), ticket numbers
 - **Type-aware edges** — errors link to decisions via `caused_by`, tasks link to context via `depends_on`
 - **Supersedes detection** — newer decisions about the same topic automatically supersede older ones
+
+### Zero-Token Context Restore — How?
+
+Most memory systems cost tokens to use: the agent calls a `recall` tool, gets results back, and those results consume context window space. STM2 takes a fundamentally different approach.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Traditional Memory System                              │
+│                                                         │
+│  Session Start                                          │
+│    → Agent calls recall("what was I working on?")       │
+│    → 500 tokens consumed for the query                  │
+│    → 2000 tokens consumed for the results               │
+│    → Total: ~2500 tokens spent just to restore context  │
+│    → Repeats every session                              │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│  STM2                                                   │
+│                                                         │
+│  Session End (previous session)                         │
+│    → Hook runs: summarize → write to CLAUDE.md          │
+│    → Cost: 0 tokens (hooks run outside Claude)          │
+│                                                         │
+│  Session Start (new session)                            │
+│    → Claude reads CLAUDE.md as project instructions     │
+│    → This happens AUTOMATICALLY, before any tool call   │
+│    → Cost: 0 additional tokens (CLAUDE.md is always     │
+│      loaded regardless — STM2 just fills it with        │
+│      useful content instead of leaving it empty)        │
+│                                                         │
+│  Result: Full context restored, 0 extra tokens          │
+└─────────────────────────────────────────────────────────┘
+```
+
+The key insight: **CLAUDE.md is always loaded into context at session start**. It's a fixed cost that every Claude Code project pays. STM2 turns this "free" space into a living memory summary — recent sessions, open tasks, key decisions, recent errors — all within a ~500 token budget. Nothing extra is spent.
+
+The `recall` tool still exists for deep searches, but for 90% of sessions, CLAUDE.md alone provides enough context to continue seamlessly.
 
 ### CLAUDE.md Sync
 
