@@ -57,14 +57,5 @@
         ]
       }
     ]
-  },
-  "mcpServers": {
-    "stm2": {
-      "command": "node",
-      "args": ["C:/Users/USER/stm2/dist/mcp/server.js"],
-      "env": {
-        "STM2_PROJECT_DIR": "C:/Users/USER/stm2"
-      }
-    }
   }
 }

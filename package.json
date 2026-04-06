@@ -1,5 +1,5 @@
 {
-  "name": "stm2",
+  "name": "@sangjunsama/stm2",
   "version": "0.1.0",
   "description": "Collective Intelligence Memory for AI Agents — zero-token-cost persistent memory via hooks + CLAUDE.md",
   "type": "module",

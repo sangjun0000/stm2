@@ -6,7 +6,7 @@ Edit: Edited: example.ts. Edit: src/test-hook-trigger.ts. STM2 project: TypeScri
 ### Recent Sessions
 - [2026-04-06] Completed: Commit: feat: add auth middleware; 21 tests passing, full E2E pipeline working. Decisions
 - [2026-04-06] Completed: Commit: feat: add auth middleware; 21 tests passing, full E2E pipeline working. Decisions
-- [2026-04-06] Completed: 21 tests passing, full E2E pipeline working. Decisions: CLAUDE.md dynamic section for zer
+- [2026-04-06] Completed: Commit: feat: add auth middleware; 21 tests passing, full E2E pipeline working. Decisions
 
 ### Open Tasks
 - [ ] Publish to npm registry
